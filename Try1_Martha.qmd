@@ -1,0 +1,85 @@
+---
+title: "Workshop EDSD"
+format: html
+---
+
+```{r}
+packages <- c(
+  "sf", # for working with spatial data
+  "spData", # to easily get world boundaires
+  "countrycode", # to convert between iso2 and iso3 country codes
+  "flowmapblue", # for interactive flow mapping
+  "flowmapper" # for static flow mapping using ggplot2
+  )
+#install.packages(packages)
+
+```
+
+```{r}
+library(sf)
+library(spData)
+library(countrycode)
+library(flowmapblue)
+library(flowmapper)
+library(tidyverse)
+```
+
+```{r}
+scopus_country_flows <- read_csv("data_processed/scopus_2024_V1_scholarlymigration_countryflows_enriched.csv")
+```
+
+```{r}
+countries <- spData::world
+countries |> 
+  ggplot() +
+  geom_sf()
+
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = countries) +
+  geom_sf(data = st_point_on_surface(countries), color = "darkred")
+```
+
+```{r}
+countries_centroids <- countries |> 
+  st_centroid() |> # finds a center of each country'spolygon
+  st_coordinates() |>  # extracts numeric coorindates from the POINT geometry
+  as.data.frame() |> # converts the matrix to a data.frame 
+  setNames(c("lon", "lat")) |> # renames the columns
+  cbind(countries) |> # adds back all the columns (except for geometry) form `countries`
+  select(iso_a2, lon, lat, name_long) # only selects a few columns that we really need
+
+glimpse(countries_centroids)
+```
+
+```{r}
+library(countrycode)
+
+# assuming your data.frame is called `scopus_country_flows`
+scopus_country_flows <- scopus_country_flows |> 
+  mutate(
+    iso2codefrom = countrycode(iso3codefrom,
+      origin = "iso3c",
+      destination = "iso2c"),
+    iso2codeto = countrycode(iso3codeto,
+      origin = "iso3c",
+      destination = "iso2c")
+  )
+```
+
+```{r}
+centroids_flows <- countries_centroids |> 
+    left_join(scopus_country_flows, join_by(iso_a2==iso2codefrom))
+flowmap <- flowmapblue(
+  locations = centroids_flows[, c("iso_a2", "lon", "lat")],
+  flows = centroids_flows[, c("iso_a2", "n_migrations")],
+  mapboxAccessToken = Sys.getenv("MAPBOX_TOKEN"),
+  darkMode = TRUE,
+  animation = FALSE,
+  clustering = TRUE
+  )
+
+flowmap
+```
